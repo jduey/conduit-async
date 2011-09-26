@@ -1,7 +1,7 @@
-(ns conduit-asynch.test.core
+(ns conduit-async.test.core
   (:use [clojure.test]
         [conduit.core]
-        [conduit-asynch.core])
+        [conduit-async.core])
   (:import (java.lang Thread)))
 
 (deftest test-handle-message
@@ -64,10 +64,10 @@
                (Thread/sleep 1200)
                (is (nil? @thread))))))
 
-(deftest test-a-asynch
+(deftest test-a-async
          (deref
            (future
-             (let [tp (a-asynch
+             (let [tp (a-async
                         (a-loop
                           (a-arr (fn [[c x]]
                                    (+ c x)))

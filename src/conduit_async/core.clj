@@ -1,4 +1,4 @@
-(ns conduit-asynch.core
+(ns conduit-async.core
   (:use [conduit.core :only [abort-c]])
   (:import (java.lang Thread)))
 
@@ -36,7 +36,7 @@
     (dosync
       (alter queue conj msg)))
 
-(defn a-asynch [p]
+(defn a-async [p]
   (let [msg-queue (ref [])
         handlers (ref #{})
         closed? (atom false)
