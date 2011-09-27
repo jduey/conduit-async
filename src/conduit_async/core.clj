@@ -2,7 +2,20 @@
   (:use [conduit.core :only [abort-c]])
   (:import (java.lang Thread)))
 
-(defn handle-message [p {:keys [value continuation]}]
+(defn handle-message [handlers p {:keys [value continuation]}]
+  (when handlers
+    (let [_ (prn :handlers @handlers)
+          new-handlers (reduce (fn [hs [tag h]]
+                                 (prn :hs hs :tag tag :h h)
+                                 (let [[new-h c] (h value)]
+                                   (prn :new-h new-h :c c)
+                                   (c nil)
+                                   (if new-h
+                                     (assoc hs tag new-h)
+                                     hs)))
+                               {}
+                               @handlers)]
+      (dosync (ref-set handlers new-handlers))))
   (if (not= p [])
     (let [[new-p c] (p value)]
       (if-let [reply @continuation]
@@ -11,7 +24,7 @@
       new-p)
     p))
 
-(defn message-handler [{:keys [queue thread closed? p] :as args}]
+(defn message-handler [{:keys [queue thread closed? handlers p] :as args}]
   (let [msgs (dosync
                (let [msgs @queue]
                  (ref-set queue [])
@@ -23,7 +36,7 @@
           ; make this thread wait on a notification
           (Thread/sleep 1000)
           (recur args))
-        (let [new-p (reduce handle-message p msgs)]
+        (let [new-p (reduce (partial handle-message handlers) p msgs)]
           (recur (assoc args :p new-p))))
       (swap! thread (constantly nil)))))
 
@@ -41,7 +54,7 @@
 (defn a-async [& [p]]
   (let [p (or p [])
         msg-queue (ref [])
-        handlers (ref #{})
+        handlers (ref {})
         closed? (atom false)
         thread (atom nil)
         args {:queue msg-queue
@@ -71,3 +84,24 @@
 (defn close [p]
   (swap! (:closed? (meta p)) (constantly true)))
 
+(defn fork [p handler]
+  (dosync
+    (alter (:handlers (meta p)) assoc handler handler)))
+
+(defn receive [p f]
+  (let [handler (fn [x]
+                  (f x)
+                  [nil abort-c])]
+    (dosync
+      (alter (:handlers (meta p)) assoc f handler)))) 
+
+(defn receive-all [p f]
+  (let [handler (fn curr-fn [x]
+                  (f x)
+                  [curr-fn abort-c])]
+    (dosync
+      (alter (:handlers (meta p)) assoc f handler))))
+
+(defn cancel-callback [p handler]
+  (dosync
+      (alter (:handlers (meta p)) dissoc handler)))

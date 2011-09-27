@@ -13,12 +13,14 @@
                c2 (promise)]
            (deliver c1 reply)
            (is (= ":x 3\n"
-                  (with-out-str (handle-message tp {:value 3
-                                                    :continuation c1}))))
+                  (with-out-str (handle-message {} tp
+                                                {:value 3
+                                                 :continuation c1}))))
            (is (= [4] @reply))
            (deliver c2 nil)
            (is (= ":x 8\n"
-                  (with-out-str (handle-message tp {:value 8
+                  (with-out-str (handle-message {}
+                                                tp {:value 8
                                                     :continuation c2}))))))
 
 (deftest test-message-handler
@@ -38,6 +40,7 @@
                closed? (atom false)]
            (future (message-handler {:queue queue
                                      :thread thread
+                                     :handlers (ref {})
                                      :p tp
                                      :closed? closed?}))
            (deliver c1 r1)
@@ -100,6 +103,28 @@
                (is (= [] (wait-for-reply tp 8)))
                (Thread/sleep 1200)
                (is (= [] (wait-for-reply tp 8)))
+               (is (nil? @thread))))))
+
+(deftest test-async-handlers
+         (deref
+           (future
+             (let [tp (a-async)
+                   thread (:thread (meta tp))
+                   result1 (atom [])
+                   result2 (atom [])]
+               (is (nil? @thread))
+               (receive tp (fn [x]
+                             (swap! result1 #(conj % x))))
+               (receive-all tp (fn [x]
+                                 (swap! result2 #(conj % x))))
+               (enqueue tp 8)
+               (is (not (nil? @thread)))
+               (enqueue tp 19)
+               (enqueue tp 2)
+               (close tp)
+               (Thread/sleep 1200)
+               (is (= [] @result1))
+               (is (= [] @result2))
                (is (nil? @thread))))))
 
 (run-tests)
