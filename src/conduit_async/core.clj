@@ -2,12 +2,14 @@
   (:use [conduit.core :only [abort-c]])
   (:import (java.lang Thread)))
 
-(defn handle-message [p msg]
-  (let [[new-p c] (p (:value msg))]
-    (if-let [reply (:reply msg)]
-      (deliver reply (c identity))
-      (c nil))
-    new-p))
+(defn handle-message [p {:keys [value continuation]}]
+  (if (not= p [])
+    (let [[new-p c] (p value)]
+      (if-let [reply @continuation]
+        (deliver reply (c identity))
+        (c nil))
+      new-p)
+    p))
 
 (defn message-handler [{:keys [queue thread closed? p] :as args}]
   (let [msgs (dosync
@@ -25,7 +27,7 @@
           (recur (assoc args :p new-p))))
       (swap! thread (constantly nil)))))
 
-(defn enqueue-msg [{:keys [queue thread closed? p] :as args} msg]
+(defn enqueue-msg [{:keys [queue thread] :as args} msg]
   (let [thread-obj @thread]
     (if (nil? thread-obj)
       (let [new-thread (Thread. #(message-handler args))]
@@ -36,8 +38,9 @@
     (dosync
       (alter queue conj msg)))
 
-(defn a-async [p]
-  (let [msg-queue (ref [])
+(defn a-async [& [p]]
+  (let [p (or p [])
+        msg-queue (ref [])
         handlers (ref #{})
         closed? (atom false)
         thread (atom nil)
@@ -50,12 +53,14 @@
       (fn curr-fn [x]
         (if @closed?
           [curr-fn abort-c]
-          [curr-fn (fn [c]
-                     (if (nil? c)
-                       (enqueue-msg args {:value x})
-                       (let [reply (promise)]
-                         (enqueue-msg args {:value x :reply reply})
-                         (c @reply))))]))
+          (let [continuation (promise)]
+            (enqueue-msg args {:value x :continuation continuation})
+            [curr-fn (fn [c]
+                         (if (nil? c)
+                           (deliver continuation nil)
+                           (let [reply (promise)]
+                             (deliver continuation reply)
+                             (c @reply))))])))
       (-> (meta p)
         (select-keys [:created-by :args])
         (assoc :handlers handlers

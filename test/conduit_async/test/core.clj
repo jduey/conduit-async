@@ -8,30 +8,42 @@
          (let [tp (a-comp
                     (tap (a-arr #(println :x %)))
                     (a-arr inc))
-               reply (promise)]
+               reply (promise)
+               c1 (promise)
+               c2 (promise)]
+           (deliver c1 reply)
            (is (= ":x 3\n"
-                  (with-out-str (handle-message tp {:value 3 :reply reply}))))
+                  (with-out-str (handle-message tp {:value 3
+                                                    :continuation c1}))))
            (is (= [4] @reply))
+           (deliver c2 nil)
            (is (= ":x 8\n"
-                  (with-out-str (handle-message tp {:value 8}))))))
+                  (with-out-str (handle-message tp {:value 8
+                                                    :continuation c2}))))))
 
 (deftest test-message-handler
          (let [tp (a-loop
                     (a-arr (fn [[c x]]
                              (+ c x)))
                     0)
+               c1 (promise)
+               c2 (promise)
+               c3 (promise)
                r1 (promise)
                r2 (promise)
-               queue (ref [{:value 7 :reply r1}
-                           {:value 3}
-                           {:value 9 :reply r2}])
+               queue (ref [{:value 7 :continuation c1}
+                           {:value 3 :continuation c2}
+                           {:value 9 :continuation c3}])
                thread (atom (Thread. identity))
                closed? (atom false)]
            (future (message-handler {:queue queue
                                      :thread thread
                                      :p tp
                                      :closed? closed?}))
+           (deliver c1 r1)
            (is (= [7] @r1))
+           (deliver c2 nil)
+           (deliver c3 r2)
            (is (= [19] @r2))
            (is (not (nil? @thread)))
            (swap! closed? (constantly true))
@@ -45,6 +57,9 @@
                         (a-arr (fn [[c x]]
                                  (+ c x)))
                         0)
+                   c1 (promise)
+                   c2 (promise)
+                   c3 (promise)
                    r1 (promise)
                    r2 (promise)
                    queue (ref [])
@@ -54,11 +69,14 @@
                          :thread thread
                          :p tp
                          :closed? closed?}]
-               (enqueue-msg args {:value 7 :reply r1})
+               (enqueue-msg args {:value 7 :continuation c1})
                (is (not (nil? @thread)))
+               (deliver c1 r1)
                (is (= [7] @r1))
-               (enqueue-msg args {:value 3})
-               (enqueue-msg args {:value 9 :reply r2})
+               (enqueue-msg args {:value 3 :continuation c2})
+               (enqueue-msg args {:value 9 :continuation c3})
+               (deliver c2 nil)
+               (deliver c3 r2)
                (is (= [19] @r2))
                (swap! closed? (constantly true))
                (Thread/sleep 1200)
